@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Alert } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
+import Slider from '@react-native-community/slider';
 
 export default function App() {
   const [isFlashlightOn, setIsFlashlightOn] = useState(false);
+  const [brightness, setBrightness] = useState(100);
   const [permission, requestPermission] = useCameraPermissions();
 
   useEffect(() => {
@@ -37,7 +39,30 @@ export default function App() {
           <Text style={styles.statusText}>
             {isFlashlightOn ? '💡 ON' : '⚫ OFF'}
           </Text>
+          <Text style={styles.brightnessLabel}>
+            Brightness: {Math.round(brightness)}%
+          </Text>
         </View>
+
+        {isFlashlightOn && (
+          <View style={styles.sliderContainer}>
+            <Slider
+              style={styles.slider}
+              minimumValue={10}
+              maximumValue={100}
+              step={10}
+              value={brightness}
+              onValueChange={setBrightness}
+              minimumTrackTintColor="#FFD700"
+              maximumTrackTintColor="#555555"
+              thumbTintColor="#FFD700"
+            />
+            <View style={styles.sliderLabels}>
+              <Text style={styles.sliderLabel}>Low</Text>
+              <Text style={styles.sliderLabel}>High</Text>
+            </View>
+          </View>
+        )}
 
         <TouchableOpacity
           style={[
@@ -72,14 +97,8 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     marginBottom: 40,
   },
-  camera: {
-    position: 'absolute',
-    width: 0,
-    height: 0,
-  },
   statusContainer: {
     width: 200,
-    height: 200,
     borderRadius: 100,
     backgroundColor: '#333333',
     justifyContent: 'center',
@@ -87,11 +106,36 @@ const styles = StyleSheet.create({
     marginBottom: 40,
     borderWidth: 3,
     borderColor: '#555555',
+    paddingVertical: 30,
   },
   statusText: {
     fontSize: 48,
     fontWeight: 'bold',
     color: '#ffffff',
+  },
+  brightnessLabel: {
+    fontSize: 14,
+    color: '#FFD700',
+    marginTop: 10,
+    fontWeight: '600',
+  },
+  sliderContainer: {
+    width: '80%',
+    marginBottom: 30,
+    paddingHorizontal: 10,
+  },
+  slider: {
+    width: '100%',
+    height: 50,
+  },
+  sliderLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 5,
+  },
+  sliderLabel: {
+    fontSize: 12,
+    color: '#888888',
   },
   button: {
     paddingVertical: 15,
