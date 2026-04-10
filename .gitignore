@@ -30,5 +30,8 @@ dist
 # React Native
 .gradle
 .m2
-android/
+# Ignore build outputs but not source
+android/app/build/
+android/.gradle/
+android/local.properties
 ios/
