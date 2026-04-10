@@ -1,30 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Alert } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
-import Slider from '@react-native-community/slider';
+import * as Camera from 'expo-camera';
 
 export default function App() {
   const [isFlashlightOn, setIsFlashlightOn] = useState(false);
   const [brightness, setBrightness] = useState(100);
-  const [permission, requestPermission] = useCameraPermissions();
+  const [permission, requestPermission] = Camera.useCameraPermissions();
 
   useEffect(() => {
-    if (permission === null) {
+    if (permission?.status !== 'granted') {
       requestPermission();
     }
   }, [permission]);
 
   const toggleFlashlight = async () => {
     if (permission?.status !== 'granted') {
-      Alert.alert('Permission Denied', 'Camera permission is required to use the flashlight.');
+      Alert.alert('Permission Denied', 'Camera permission is required.');
       return;
     }
+    setIsFlashlightOn(!isFlashlightOn);
+  };
 
-    try {
-      setIsFlashlightOn(!isFlashlightOn);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to toggle flashlight.');
+  const increaseBrightness = () => {
+    if (brightness < 100) {
+      setBrightness(brightness + 10);
+    }
+  };
+
+  const decreaseBrightness = () => {
+    if (brightness > 10) {
+      setBrightness(brightness - 10);
     }
   };
 
@@ -39,28 +45,37 @@ export default function App() {
           <Text style={styles.statusText}>
             {isFlashlightOn ? '💡 ON' : '⚫ OFF'}
           </Text>
-          <Text style={styles.brightnessLabel}>
-            Brightness: {Math.round(brightness)}%
+          <Text style={styles.brightnessValue}>
+            {Math.round(brightness)}%
           </Text>
         </View>
 
         {isFlashlightOn && (
-          <View style={styles.sliderContainer}>
-            <Slider
-              style={styles.slider}
-              minimumValue={10}
-              maximumValue={100}
-              step={10}
-              value={brightness}
-              onValueChange={setBrightness}
-              minimumTrackTintColor="#FFD700"
-              maximumTrackTintColor="#555555"
-              thumbTintColor="#FFD700"
-            />
-            <View style={styles.sliderLabels}>
-              <Text style={styles.sliderLabel}>Low</Text>
-              <Text style={styles.sliderLabel}>High</Text>
+          <View style={styles.brightnessControls}>
+            <TouchableOpacity 
+              style={styles.brightnessButton}
+              onPress={decreaseBrightness}
+              disabled={brightness <= 10}
+            >
+              <Text style={styles.brightnessButtonText}>−</Text>
+            </TouchableOpacity>
+
+            <View style={styles.brightnessBar}>
+              <View 
+                style={[
+                  styles.brightnessBarFill,
+                  { width: `${brightness}%` }
+                ]}
+              />
             </View>
+
+            <TouchableOpacity 
+              style={styles.brightnessButton}
+              onPress={increaseBrightness}
+              disabled={brightness >= 100}
+            >
+              <Text style={styles.brightnessButtonText}>+</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -113,29 +128,44 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#ffffff',
   },
-  brightnessLabel: {
-    fontSize: 14,
+  brightnessValue: {
+    fontSize: 20,
     color: '#FFD700',
     marginTop: 10,
     fontWeight: '600',
   },
-  sliderContainer: {
+  brightnessControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
     width: '80%',
     marginBottom: 30,
-    paddingHorizontal: 10,
+    gap: 15,
   },
-  slider: {
-    width: '100%',
+  brightnessButton: {
+    width: 50,
     height: 50,
+    borderRadius: 25,
+    backgroundColor: '#FFD700',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  sliderLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 5,
+  brightnessButtonText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#000000',
   },
-  sliderLabel: {
-    fontSize: 12,
-    color: '#888888',
+  brightnessBar: {
+    flex: 1,
+    height: 20,
+    backgroundColor: '#333333',
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#555555',
+  },
+  brightnessBarFill: {
+    height: '100%',
+    backgroundColor: '#FFD700',
   },
   button: {
     paddingVertical: 15,
