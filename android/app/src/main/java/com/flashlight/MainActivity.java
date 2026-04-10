@@ -3,11 +3,7 @@ package com.flashlight;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.hardware.camera2.CameraAccessException;
-import android.hardware.camera2.CameraCaptureSession;
-import android.hardware.camera2.CameraCharacteristics;
-import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
-import android.hardware.camera2.CaptureRequest;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -20,14 +16,10 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import java.util.Collections;
-
 public class MainActivity extends AppCompatActivity {
 
     private CameraManager cameraManager;
     private String cameraId;
-    private CameraDevice cameraDevice;
-    private CameraCaptureSession captureSession;
     private boolean isFlashlightOn = false;
     private int currentTorchStrength = 1;
     private Button toggleButton;
@@ -94,102 +86,67 @@ public class MainActivity extends AppCompatActivity {
         if (isFlashlightOn) {
             turnOffFlashlight();
         } else {
-            openCameraAndEnableFlashlight();
+            enableFlashlight();
         }
     }
 
-    private void openCameraAndEnableFlashlight() {
+    private void enableFlashlight() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show();
             return;
         }
 
         try {
-            cameraManager.openCamera(cameraId, new CameraDevice.StateCallback() {
-                @Override
-                public void onOpened(CameraDevice camera) {
-                    cameraDevice = camera;
-                    createCaptureSession();
-                }
-
-                @Override
-                public void onDisconnected(CameraDevice camera) {
-                    camera.close();
-                }
-
-                @Override
-                public void onError(CameraDevice camera, int error) {
-                    camera.close();
-                    Toast.makeText(MainActivity.this, "Camera error: " + error, Toast.LENGTH_SHORT).show();
-                }
-            }, cameraHandler);
-        } catch (CameraAccessException e) {
-            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void createCaptureSession() {
-        try {
-            cameraDevice.createCaptureSession(Collections.emptyList(), new CameraCaptureSession.StateCallback() {
-                @Override
-                public void onConfigured(CameraCaptureSession session) {
-                    captureSession = session;
-                    isFlashlightOn = true;
-                    updateUI();
-                    updateTorchBrightness(currentTorchStrength);
-                }
-
-                @Override
-                public void onConfigureFailed(CameraCaptureSession session) {
-                    Toast.makeText(MainActivity.this, "Failed to configure camera session", Toast.LENGTH_SHORT).show();
-                }
-            }, cameraHandler);
+            cameraManager.setTorchMode(cameraId, true);
+            isFlashlightOn = true;
+            updateUI();
+            updateTorchBrightness(currentTorchStrength);
         } catch (CameraAccessException e) {
             Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
     private void updateTorchBrightness(int strength) {
-        if (captureSession == null || cameraDevice == null) return;
+        // Brightness control via SeekBar uses PWM (pulse width modulation)
+        // Flash the torch on/off rapidly to simulate brightness levels
+        if (!isFlashlightOn) return;
 
-        try {
-            CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
-            builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH);
+        // Calculate pulse timing based on strength (1-10 = 10%-100%)
+        int onTime = strength * 50;  // 50-500ms on
+        int offTime = (11 - strength) * 50;  // 500-50ms off
 
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                try {
-                    CaptureRequest.Key<?> torchStrengthKey = CaptureRequest.TORCH_STRENGTH;
-                    builder.set(torchStrengthKey, strength);
-                } catch (NoSuchFieldError e) {
-                    // TORCH_STRENGTH not available on this device
+        cameraHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (isFlashlightOn) {
+                    try {
+                        cameraManager.setTorchMode(cameraId, false);
+                        cameraHandler.postDelayed(() -> {
+                            if (isFlashlightOn) {
+                                try {
+                                    cameraManager.setTorchMode(cameraId, true);
+                                    cameraHandler.postDelayed(this, onTime);
+                                } catch (CameraAccessException e) {
+                                    e.printStackTrace();
+                                }
+                            }
+                        }, offTime);
+                    } catch (CameraAccessException e) {
+                        e.printStackTrace();
+                    }
                 }
             }
-
-            CaptureRequest request = builder.build();
-            captureSession.setRepeatingRequest(request, null, cameraHandler);
-        } catch (CameraAccessException e) {
-            Toast.makeText(this, "Error updating brightness: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
+        });
     }
 
     private void turnOffFlashlight() {
         isFlashlightOn = false;
+        try {
+            cameraManager.setTorchMode(cameraId, false);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
         updateUI();
-
-        if (captureSession != null) {
-            try {
-                captureSession.abortCaptures();
-                captureSession.close();
-            } catch (CameraAccessException e) {
-                e.printStackTrace();
-            }
-            captureSession = null;
-        }
-
-        if (cameraDevice != null) {
-            cameraDevice.close();
-            cameraDevice = null;
-        }
     }
 
     private void updateUI() {
