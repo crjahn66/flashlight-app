@@ -1,42 +1,46 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Alert } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import * as Camera from 'expo-camera';
+import React, { useState } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, Alert, NativeModules } from 'react-native';
+import { StatusBar } from 'react-native';
+
+const FlashlightModule = NativeModules.FlashlightModule;
 
 export default function App() {
   const [isFlashlightOn, setIsFlashlightOn] = useState(false);
   const [brightness, setBrightness] = useState(100);
-  const [permission, requestPermission] = Camera.useCameraPermissions();
-
-  useEffect(() => {
-    if (permission?.status !== 'granted') {
-      requestPermission();
-    }
-  }, [permission]);
 
   const toggleFlashlight = async () => {
-    if (permission?.status !== 'granted') {
-      Alert.alert('Permission Denied', 'Camera permission is required.');
-      return;
+    try {
+      if (!isFlashlightOn) {
+        await FlashlightModule.turnOn();
+        setIsFlashlightOn(true);
+      } else {
+        await FlashlightModule.turnOff();
+        setIsFlashlightOn(false);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to toggle flashlight');
     }
-    setIsFlashlightOn(!isFlashlightOn);
   };
 
   const increaseBrightness = () => {
     if (brightness < 100) {
-      setBrightness(brightness + 10);
+      const newBrightness = brightness + 10;
+      setBrightness(newBrightness);
+      FlashlightModule.setBrightness(newBrightness);
     }
   };
 
   const decreaseBrightness = () => {
     if (brightness > 10) {
-      setBrightness(brightness - 10);
+      const newBrightness = brightness - 10;
+      setBrightness(newBrightness);
+      FlashlightModule.setBrightness(newBrightness);
     }
   };
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="light-content" backgroundColor="#1a1a1a" />
       
       <View style={styles.innerContainer}>
         <Text style={styles.title}>Flashlight</Text>
@@ -53,7 +57,7 @@ export default function App() {
         {isFlashlightOn && (
           <View style={styles.brightnessControls}>
             <TouchableOpacity 
-              style={styles.brightnessButton}
+              style={[styles.brightnessButton, brightness <= 10 && styles.disabled]}
               onPress={decreaseBrightness}
               disabled={brightness <= 10}
             >
@@ -70,7 +74,7 @@ export default function App() {
             </View>
 
             <TouchableOpacity 
-              style={styles.brightnessButton}
+              style={[styles.brightnessButton, brightness >= 100 && styles.disabled]}
               onPress={increaseBrightness}
               disabled={brightness >= 100}
             >
@@ -148,6 +152,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD700',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  disabled: {
+    opacity: 0.5,
   },
   brightnessButtonText: {
     fontSize: 28,
