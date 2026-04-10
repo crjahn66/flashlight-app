@@ -2,8 +2,16 @@ package com.flashlight;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.CaptureRequest;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.surface.Surface;
 import android.widget.Button;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -13,16 +21,23 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import java.util.Collections;
+
 public class MainActivity extends AppCompatActivity {
 
     private CameraManager cameraManager;
     private String cameraId;
+    private CameraDevice cameraDevice;
+    private CameraCaptureSession captureSession;
     private boolean isFlashlightOn = false;
+    private int currentTorchStrength = 1;
     private Button toggleButton;
     private TextView statusText;
     private SeekBar brightnessSeekBar;
     private TextView brightnessLabel;
     private static final int CAMERA_PERMISSION_CODE = 100;
+    private HandlerThread cameraThread;
+    private Handler cameraHandler;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -35,6 +50,9 @@ public class MainActivity extends AppCompatActivity {
         brightnessLabel = findViewById(R.id.brightnessLabel);
 
         cameraManager = (CameraManager) getSystemService(CAMERA_SERVICE);
+        cameraThread = new HandlerThread("CameraThread");
+        cameraThread.start();
+        cameraHandler = new Handler(cameraThread.getLooper());
 
         try {
             cameraId = cameraManager.getCameraIdList()[0];
@@ -54,8 +72,12 @@ public class MainActivity extends AppCompatActivity {
         brightnessSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                int brightness = (progress / 10) * 10 + 10;
-                brightnessLabel.setText("Brightness: " + brightness + "%");
+                if (isFlashlightOn && fromUser) {
+                    currentTorchStrength = progress + 1;
+                    int brightness = (progress + 1) * 10;
+                    brightnessLabel.setText("Brightness: " + brightness + "%");
+                    updateTorchBrightness(currentTorchStrength);
+                }
             }
 
             @Override
@@ -70,27 +92,120 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void toggleFlashlight() {
+        if (isFlashlightOn) {
+            turnOffFlashlight();
+        } else {
+            openCameraAndEnableFlashlight();
+        }
+    }
+
+    private void openCameraAndEnableFlashlight() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         try {
+            cameraManager.openCamera(cameraId, new CameraDevice.StateCallback() {
+                @Override
+                public void onOpened(CameraDevice camera) {
+                    cameraDevice = camera;
+                    createCaptureSession();
+                }
+
+                @Override
+                public void onDisconnected(CameraDevice camera) {
+                    camera.close();
+                }
+
+                @Override
+                public void onError(CameraDevice camera, int error) {
+                    camera.close();
+                    Toast.makeText(MainActivity.this, "Camera error: " + error, Toast.LENGTH_SHORT).show();
+                }
+            }, cameraHandler);
+        } catch (CameraAccessException e) {
+            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void createCaptureSession() {
+        try {
+            cameraDevice.createCaptureSession(Collections.emptyList(), new CameraCaptureSession.StateCallback() {
+                @Override
+                public void onConfigured(CameraCaptureSession session) {
+                    captureSession = session;
+                    isFlashlightOn = true;
+                    updateUI();
+                    updateTorchBrightness(currentTorchStrength);
+                }
+
+                @Override
+                public void onConfigureFailed(CameraCaptureSession session) {
+                    Toast.makeText(MainActivity.this, "Failed to configure camera session", Toast.LENGTH_SHORT).show();
+                }
+            }, cameraHandler);
+        } catch (CameraAccessException e) {
+            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void updateTorchBrightness(int strength) {
+        if (captureSession == null || cameraDevice == null) return;
+
+        try {
+            CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+            builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH);
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                builder.set(CaptureRequest.TORCH_STRENGTH, strength);
+            }
+
+            CaptureRequest request = builder.build();
+            captureSession.setRepeatingRequest(request, null, cameraHandler);
+        } catch (CameraAccessException e) {
+            Toast.makeText(this, "Error updating brightness: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void turnOffFlashlight() {
+        isFlashlightOn = false;
+        updateUI();
+
+        if (captureSession != null) {
+            try {
+                captureSession.abortCaptures();
+                captureSession.close();
+            } catch (CameraAccessException e) {
+                e.printStackTrace();
+            }
+            captureSession = null;
+        }
+
+        if (cameraDevice != null) {
+            cameraDevice.close();
+            cameraDevice = null;
+        }
+    }
+
+    private void updateUI() {
+        runOnUiThread(() -> {
             if (isFlashlightOn) {
-                cameraManager.setTorchMode(cameraId, false);
-                isFlashlightOn = false;
+                statusText.setText("💡 ON");
+                toggleButton.setText("Turn Off");
+                toggleButton.setBackgroundColor(getResources().getColor(android.R.color.holo_orange_light));
+                brightnessSeekBar.setProgress(currentTorchStrength - 1);
+                brightnessLabel.setText("Brightness: " + (currentTorchStrength * 10) + "%");
+                brightnessSeekBar.setVisibility(android.view.View.VISIBLE);
+                brightnessLabel.setVisibility(android.view.View.VISIBLE);
+            } else {
                 statusText.setText("⚫ OFF");
                 toggleButton.setText("Turn On");
                 toggleButton.setBackgroundColor(getResources().getColor(android.R.color.darker_gray));
                 brightnessSeekBar.setVisibility(android.view.View.GONE);
                 brightnessLabel.setVisibility(android.view.View.GONE);
-            } else {
-                cameraManager.setTorchMode(cameraId, true);
-                isFlashlightOn = true;
-                statusText.setText("💡 ON");
-                toggleButton.setText("Turn Off");
-                toggleButton.setBackgroundColor(getResources().getColor(android.R.color.holo_orange_light));
-                brightnessSeekBar.setVisibility(android.view.View.VISIBLE);
-                brightnessLabel.setVisibility(android.view.View.VISIBLE);
             }
-        } catch (Exception e) {
-            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
+        });
     }
 
     @Override
@@ -106,12 +221,11 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        try {
-            if (isFlashlightOn) {
-                cameraManager.setTorchMode(cameraId, false);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
+        if (isFlashlightOn) {
+            turnOffFlashlight();
+        }
+        if (cameraThread != null) {
+            cameraThread.quitSafely();
         }
     }
 }
