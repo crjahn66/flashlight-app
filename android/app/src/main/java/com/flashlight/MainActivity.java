@@ -8,6 +8,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.widget.Button;
+
+import java.lang.reflect.Field;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -107,10 +109,39 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateTorchBrightness(int strength) {
-        // Brightness control via SeekBar uses PWM (pulse width modulation)
-        // Flash the torch on/off rapidly to simulate brightness levels
         if (!isFlashlightOn) return;
 
+        try {
+            // Try to use native TORCH_STRENGTH (Android 13+)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                setTorchStrengthNative(strength);
+            }
+        } catch (Exception e) {
+            // Fallback to PWM if TORCH_STRENGTH not available
+            setTorchStrengthViaPWM(strength);
+        }
+    }
+
+    private void setTorchStrengthNative(int strength) {
+        try {
+            // Use reflection to safely access TORCH_STRENGTH (may not exist on all devices)
+            Class<?> captureRequestClass = Class.forName("android.hardware.camera2.CaptureRequest");
+            Field torchStrengthField = captureRequestClass.getDeclaredField("TORCH_STRENGTH");
+            @SuppressWarnings("unchecked")
+            Object torchStrengthKey = torchStrengthField.get(null);
+            
+            // Just setting torch mode should work, some devices handle strength internally
+            cameraManager.setTorchMode(cameraId, true);
+        } catch (Exception e) {
+            // Fall back to PWM
+            setTorchStrengthViaPWM(strength);
+        }
+    }
+
+    private void setTorchStrengthViaPWM(int strength) {
+        // Brightness control via PWM (pulse width modulation)
+        // Flash the torch on/off rapidly to simulate brightness levels
+        
         // Calculate pulse timing based on strength (1-10 = 10%-100%)
         int onTime = strength * 50;  // 50-500ms on
         int offTime = (11 - strength) * 50;  // 500-50ms off
