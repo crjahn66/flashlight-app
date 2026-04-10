@@ -184,7 +184,9 @@ public class MainActivity extends AppCompatActivity {
             // Set TORCH_STRENGTH using reflection
             if (torchStrengthField != null) {
                 try {
-                    builder.set(torchStrengthField, strength);
+                    @SuppressWarnings("unchecked")
+                    CaptureRequest.Key<Integer> torchStrengthKey = (CaptureRequest.Key<Integer>) torchStrengthField.get(null);
+                    builder.set(torchStrengthKey, strength);
                 } catch (Exception e) {
                     // If setting fails, just use torch without strength control
                 }
