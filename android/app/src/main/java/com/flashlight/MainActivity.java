@@ -11,7 +11,6 @@ import android.hardware.camera2.CaptureRequest;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.surface.Surface;
 import android.widget.Button;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -158,7 +157,12 @@ public class MainActivity extends AppCompatActivity {
             builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH);
 
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                builder.set(CaptureRequest.TORCH_STRENGTH, strength);
+                try {
+                    CaptureRequest.Key<?> torchStrengthKey = CaptureRequest.TORCH_STRENGTH;
+                    builder.set(torchStrengthKey, strength);
+                } catch (NoSuchFieldError e) {
+                    // TORCH_STRENGTH not available on this device
+                }
             }
 
             CaptureRequest request = builder.build();
