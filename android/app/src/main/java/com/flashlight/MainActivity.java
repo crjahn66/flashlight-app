@@ -34,6 +34,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView statusText;
     private SeekBar brightnessSeekBar;
     private TextView brightnessLabel;
+    private android.widget.LinearLayout brightnessContainer;
     private static final int CAMERA_PERMISSION_CODE = 100;
     private HandlerThread cameraThread;
     private Handler cameraHandler;
@@ -48,6 +49,7 @@ public class MainActivity extends AppCompatActivity {
         statusText = findViewById(R.id.statusText);
         brightnessSeekBar = findViewById(R.id.brightnessSeekBar);
         brightnessLabel = findViewById(R.id.brightnessLabel);
+        brightnessContainer = findViewById(R.id.brightnessContainer);
 
         cameraManager = (CameraManager) getSystemService(CAMERA_SERVICE);
         cameraThread = new HandlerThread("CameraThread");
@@ -95,8 +97,6 @@ public class MainActivity extends AppCompatActivity {
             public void onStopTrackingTouch(SeekBar seekBar) {}
         });
 
-        brightnessSeekBar.setVisibility(android.view.View.GONE);
-        brightnessLabel.setVisibility(android.view.View.GONE);
     }
 
     private void toggleFlashlight() {
@@ -235,14 +235,12 @@ public class MainActivity extends AppCompatActivity {
                 toggleButton.setBackgroundColor(getResources().getColor(android.R.color.holo_orange_light));
                 brightnessSeekBar.setProgress(currentTorchStrength - 1);
                 brightnessLabel.setText("Brightness: " + (currentTorchStrength * 10) + "%");
-                brightnessSeekBar.setVisibility(android.view.View.VISIBLE);
-                brightnessLabel.setVisibility(android.view.View.VISIBLE);
+                brightnessContainer.setVisibility(android.view.View.VISIBLE);
             } else {
                 statusText.setText("⚫ OFF");
                 toggleButton.setText("Turn On");
                 toggleButton.setBackgroundColor(getResources().getColor(android.R.color.darker_gray));
-                brightnessSeekBar.setVisibility(android.view.View.GONE);
-                brightnessLabel.setVisibility(android.view.View.GONE);
+                brightnessContainer.setVisibility(android.view.View.GONE);
             }
         });
     }
