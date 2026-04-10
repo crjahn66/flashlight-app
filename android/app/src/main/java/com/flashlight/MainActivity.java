@@ -3,13 +3,14 @@ package com.flashlight;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.CaptureRequest;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.widget.Button;
-
-import java.lang.reflect.Field;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -18,10 +19,15 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import java.lang.reflect.Field;
+import java.util.Collections;
+
 public class MainActivity extends AppCompatActivity {
 
     private CameraManager cameraManager;
     private String cameraId;
+    private CameraDevice cameraDevice;
+    private CameraCaptureSession captureSession;
     private boolean isFlashlightOn = false;
     private int currentTorchStrength = 1;
     private Button toggleButton;
@@ -31,6 +37,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int CAMERA_PERMISSION_CODE = 100;
     private HandlerThread cameraThread;
     private Handler cameraHandler;
+    private Field torchStrengthField;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,6 +53,14 @@ public class MainActivity extends AppCompatActivity {
         cameraThread = new HandlerThread("CameraThread");
         cameraThread.start();
         cameraHandler = new Handler(cameraThread.getLooper());
+
+        // Try to get TORCH_STRENGTH field for Android 13+
+        try {
+            Class<?> captureRequestClass = Class.forName("android.hardware.camera2.CaptureRequest");
+            torchStrengthField = captureRequestClass.getDeclaredField("TORCH_STRENGTH");
+        } catch (Exception e) {
+            torchStrengthField = null;
+        }
 
         try {
             cameraId = cameraManager.getCameraIdList()[0];
@@ -98,85 +113,115 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        if (torchStrengthField != null) {
+            // Use Camera2 API with TORCH_STRENGTH
+            openCameraWithTorchStrength();
+        } else {
+            // Fallback to simple setTorchMode
+            try {
+                cameraManager.setTorchMode(cameraId, true);
+                isFlashlightOn = true;
+                updateUI();
+            } catch (CameraAccessException e) {
+                Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private void openCameraWithTorchStrength() {
         try {
-            cameraManager.setTorchMode(cameraId, true);
-            isFlashlightOn = true;
-            updateUI();
-            updateTorchBrightness(currentTorchStrength);
+            cameraManager.openCamera(cameraId, new CameraDevice.StateCallback() {
+                @Override
+                public void onOpened(CameraDevice camera) {
+                    cameraDevice = camera;
+                    createCaptureSession();
+                }
+
+                @Override
+                public void onDisconnected(CameraDevice camera) {
+                    camera.close();
+                }
+
+                @Override
+                public void onError(CameraDevice camera, int error) {
+                    camera.close();
+                    Toast.makeText(MainActivity.this, "Camera error: " + error, Toast.LENGTH_SHORT).show();
+                }
+            }, cameraHandler);
+        } catch (CameraAccessException e) {
+            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void createCaptureSession() {
+        try {
+            cameraDevice.createCaptureSession(Collections.emptyList(), new CameraCaptureSession.StateCallback() {
+                @Override
+                public void onConfigured(CameraCaptureSession session) {
+                    captureSession = session;
+                    isFlashlightOn = true;
+                    updateUI();
+                    updateTorchBrightness(currentTorchStrength);
+                }
+
+                @Override
+                public void onConfigureFailed(CameraCaptureSession session) {
+                    Toast.makeText(MainActivity.this, "Failed to configure camera", Toast.LENGTH_SHORT).show();
+                }
+            }, cameraHandler);
         } catch (CameraAccessException e) {
             Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
     private void updateTorchBrightness(int strength) {
-        if (!isFlashlightOn) return;
+        if (!isFlashlightOn || captureSession == null) return;
 
         try {
-            // Try to use native TORCH_STRENGTH (Android 13+)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                setTorchStrengthNative(strength);
-            }
-        } catch (Exception e) {
-            // Fallback to PWM if TORCH_STRENGTH not available
-            setTorchStrengthViaPWM(strength);
-        }
-    }
+            CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+            builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH);
 
-    private void setTorchStrengthNative(int strength) {
-        try {
-            // Use reflection to safely access TORCH_STRENGTH (may not exist on all devices)
-            Class<?> captureRequestClass = Class.forName("android.hardware.camera2.CaptureRequest");
-            Field torchStrengthField = captureRequestClass.getDeclaredField("TORCH_STRENGTH");
-            @SuppressWarnings("unchecked")
-            Object torchStrengthKey = torchStrengthField.get(null);
-            
-            // Just setting torch mode should work, some devices handle strength internally
-            cameraManager.setTorchMode(cameraId, true);
-        } catch (Exception e) {
-            // Fall back to PWM
-            setTorchStrengthViaPWM(strength);
-        }
-    }
-
-    private void setTorchStrengthViaPWM(int strength) {
-        // Brightness control via PWM (pulse width modulation)
-        // Flash the torch on/off rapidly to simulate brightness levels
-        
-        // Calculate pulse timing based on strength (1-10 = 10%-100%)
-        int onTime = strength * 50;  // 50-500ms on
-        int offTime = (11 - strength) * 50;  // 500-50ms off
-
-        cameraHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                if (isFlashlightOn) {
-                    try {
-                        cameraManager.setTorchMode(cameraId, false);
-                        cameraHandler.postDelayed(() -> {
-                            if (isFlashlightOn) {
-                                try {
-                                    cameraManager.setTorchMode(cameraId, true);
-                                    cameraHandler.postDelayed(this, onTime);
-                                } catch (CameraAccessException e) {
-                                    e.printStackTrace();
-                                }
-                            }
-                        }, offTime);
-                    } catch (CameraAccessException e) {
-                        e.printStackTrace();
-                    }
+            // Set TORCH_STRENGTH using reflection
+            if (torchStrengthField != null) {
+                try {
+                    builder.set(torchStrengthField, strength);
+                } catch (Exception e) {
+                    // If setting fails, just use torch without strength control
                 }
             }
-        });
+
+            CaptureRequest request = builder.build();
+            captureSession.setRepeatingRequest(request, null, cameraHandler);
+        } catch (CameraAccessException e) {
+            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void turnOffFlashlight() {
         isFlashlightOn = false;
-        try {
-            cameraManager.setTorchMode(cameraId, false);
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
+        
+        if (captureSession != null) {
+            try {
+                captureSession.abortCaptures();
+                captureSession.close();
+            } catch (CameraAccessException e) {
+                e.printStackTrace();
+            }
+            captureSession = null;
         }
+
+        if (cameraDevice != null) {
+            cameraDevice.close();
+            cameraDevice = null;
+        } else {
+            // Fallback for simple torch mode
+            try {
+                cameraManager.setTorchMode(cameraId, false);
+            } catch (CameraAccessException e) {
+                e.printStackTrace();
+            }
+        }
+
         updateUI();
     }
 
@@ -215,6 +260,9 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         if (isFlashlightOn) {
             turnOffFlashlight();
+        }
+        if (cameraDevice != null) {
+            cameraDevice.close();
         }
         if (cameraThread != null) {
             cameraThread.quitSafely();
