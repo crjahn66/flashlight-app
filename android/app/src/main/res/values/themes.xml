@@ -5,7 +5,4 @@
         <item name="colorPrimaryDark">@color/black</item>
         <item name="colorAccent">@color/gold</item>
     </style>
-
-    <color name="black">#1a1a1a</color>
-    <color name="gold">#FFD700</color>
 </resources>
